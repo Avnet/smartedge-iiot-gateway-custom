@@ -1,0 +1,11 @@
+
+This area contains the custom files for the IIoTGateway.
+
+rpiboot - files needed to use rpiboot and secure rpiboot
+
+SecureBoot - files needed for secure boot also included in rpiboot directory
+
+tpm - files used to generate the tpm tools and other tpm related drivers.
+
+utils - files added to filesystem for IIoTGateway operations.
+

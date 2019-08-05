@@ -1,0 +1,5 @@
+{
+    "SSLKeyPath": "<< path >>/key.pem",
+    "SSLCertPath": "<< path >>/crt.pem",
+    "SSLCaPath": "<< path >>/ms.cer"
+}
