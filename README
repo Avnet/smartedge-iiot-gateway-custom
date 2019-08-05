@@ -9,3 +9,6 @@ tpm - files used to generate the tpm tools and other tpm related drivers.
 
 utils - files added to filesystem for IIoTGateway operations.
 
+cross compiler is locate here:
+
+https://sourceforge.net/projects/raspberry-pi-cross-compilers/files/Raspberry%20Pi%20GCC%20Cross-Compiler%20Toolchains/GCC%208.3.0/Raspberry%20Pi%202%2C%203/
