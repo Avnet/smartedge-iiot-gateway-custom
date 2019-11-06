@@ -1,0 +1,6 @@
+rpiboot
+bin2c
+msd/2ndsig.h
+msd/bootcode.h
+msd/bootsig.h
+msd/start.h

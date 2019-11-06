@@ -1,0 +1,36 @@
+rpiboot (20180627~140218) stretch; urgency=medium
+
+  * Switch "r" to "rb" for fmemopen
+  * Add cross platform method of building in a binary
+  * Compile bootcode.bin and start.elf into rpiboot
+  * Change USB device settings to better work with all devices
+  * usbboot: Add support for multiple instances
+  * Add extra delay between disconnecting and reconnecting
+  * Fixed numerous problems with enumerating CM3 / Pi Zero
+
+ -- Serge Schneider <serge@raspberrypi.org>  Wed, 04 Jul 2018 17:46:29 +0100
+
+rpiboot (20171023~154601) stretch; urgency=medium
+
+  * Directory overlay support
+
+ -- Serge Schneider <serge@raspberrypi.org>  Fri, 27 Oct 2017 10:21:19 +0100
+
+rpiboot (20170926+2) stretch; urgency=medium
+
+  * Change rpiboot behaviour to check /usr/share/rpiboot/msd
+  * Add lintian-overrides
+
+ -- Serge Schneider <serge@raspberrypi.org>  Tue, 26 Sep 2017 16:11:13 +0100
+
+rpiboot (20170926+1) stretch; urgency=medium
+
+  * Install msd files without creating a subdirectory
+
+ -- Serge Schneider <serge@raspberrypi.org>  Tue, 26 Sep 2017 14:55:50 +0100
+
+rpiboot (20170926) stretch; urgency=medium
+
+  * Initial Release.
+
+ -- Serge Schneider <serge@raspberrypi.org>  Tue, 26 Sep 2017 13:31:20 +0100

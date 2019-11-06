@@ -1,9 +1,7 @@
 # USB boot code
 
 This is the USB MSD boot code which should work on the Avnet SmartEdge IIOT Gateway.
-
-This version of rpiboot is a snapshot of the mainline rpiboot (commit: 50fc0f4).  Newer versions of rpiboot
-may not work properly on the Avnet SmartEdge IIOT Gateway.
+Mainline rpiboot may not work properly on the Avnet SmartEdge IIOT Gateway
 
 ## Building
 
@@ -14,7 +12,7 @@ $ git clone https://github.com/Avnet/smartedge-iiot-gateway-custom.git
 $ cd smartedge-iiot-gateway-custom/rpiboot
 $ sudo apt-get install libusb-1.0-0-dev
 $ make
-$ sudo ./rpiboot_secure.sh
+$ sudo ./rpiboot
 ```
 
 rpiboot may hang, but you can safely CTRL-C out once the drive is visible.

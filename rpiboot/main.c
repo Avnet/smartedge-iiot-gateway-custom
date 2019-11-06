@@ -5,10 +5,19 @@
 
 #include <unistd.h>
 
-int signed_boot = 0;
+#include "msd/bootcode.h"
+#include "msd/bootsig.h"
+#include "msd/start.h"
+#include "msd/2ndsig.h"
+
+int unsigned_boot = 0;
 int verbose = 0;
 int loop = 0;
+int overlay = 0;
+long delay = 500;
 char * directory = NULL;
+char pathname[18];
+uint8_t targetPortNo = 99;
 
 int out_ep;
 int in_ep;
@@ -31,8 +40,13 @@ void usage(int error)
 	fprintf(dest, "rpiboot -d [directory]   : Boot the device using the boot files in 'directory'\n");
 	fprintf(dest, "Further options:\n");
 	fprintf(dest, "        -l               : Loop forever\n");
+	fprintf(dest, "        -o               : Use files from overlay subdirectory if they exist (when using a custom directory)\n");
+	fprintf(dest, "                           USB Path (1-1.3.2 for example) is shown in verbose mode.\n");
+	fprintf(dest, "                           (bootcode.bin is always preloaded from the base directory)\n");
+	fprintf(dest, "        -m delay         : Microseconds delay between checking for new devices (default 500)\n");
 	fprintf(dest, "        -v               : Verbose\n");
-	fprintf(dest, "        -s               : Signed using bootsig.bin\n");
+	fprintf(dest, "        -u               : Unsigned using bootsig.bin\n");
+	fprintf(dest, "        -0/1/2/3/4/5/6   : Only look for CMs attached to USB port number 0-6\n");
 	fprintf(dest, "        -h               : This help\n");
 
 	exit(error ? -1 : 0);
@@ -46,25 +60,70 @@ libusb_device_handle * LIBUSB_CALL open_device_with_vid(
 	struct libusb_device *dev;
 	struct libusb_device_handle *handle = NULL;
 	uint32_t i = 0;
-	int r;
+	int r, j, len;
+	uint8_t path[8];	// Needed for libusb_get_port_numbers
+	uint8_t portNo = 0;
 
 	if (libusb_get_device_list(ctx, &devs) < 0)
 		return NULL;
 
 	while ((dev = devs[i++]) != NULL) {
+		len = 0;
 		struct libusb_device_descriptor desc;
 		r = libusb_get_device_descriptor(dev, &desc);
 		if (r < 0)
 			goto out;
+
+		if(overlay || verbose == 2)
+		{
+			r = libusb_get_port_numbers(dev, path, sizeof(path));
+			len = snprintf(&pathname[len], 18-len, "%d", libusb_get_bus_number(dev));
+			if (r > 0) {
+				len += snprintf(&pathname[len], 18-len, "-");
+				len += snprintf(&pathname[len], 18-len, "%d", path[0]);
+				for (j = 1; j < r; j++)
+				{
+					len += snprintf(&pathname[len], 18-len, ".%d", path[j]);
+				}
+			}
+		}
+
+		/*
+		  http://libusb.sourceforge.net/api-1.0/group__dev.html#ga14879a0ea7daccdcddb68852d86c00c4
+
+		  The port number returned by this call is usually guaranteed to be uniquely tied to a physical port,
+		  meaning that different devices plugged on the same physical port should return the same port number.
+		*/
+		portNo = libusb_get_port_number(dev);
+
 		if(verbose == 2)
+		{
 			printf("Found device %u idVendor=0x%04x idProduct=0x%04x\n", i, desc.idVendor, desc.idProduct);
+			printf("Bus: %d, Device: %d Path: %s\n",libusb_get_bus_number(dev), libusb_get_device_address(dev), pathname);
+		}
+
 		if (desc.idVendor == vendor_id) {
 			if(desc.idProduct == 0x2763 ||
-			   desc.idProduct == 0x2764)
+			   desc.idProduct == 0x2764 ||
+			   desc.idProduct == 0x2711)
 			{
-				if(verbose) printf("Device located successfully\n");
-				found = dev;
-				break;
+				if(verbose == 2)
+				      printf("Found candidate Compute Module...");
+
+				///////////////////////////////////////////////////////////////////////
+				// Check if we should match against a specific port number
+				///////////////////////////////////////////////////////////////////////
+				if (targetPortNo == 99 || portNo == targetPortNo)
+				{
+					if(verbose) printf("Device located successfully\n");
+					found = dev;
+					break;
+				}
+				else
+				{
+					if(verbose == 2)
+					      printf("...Wrong Port, Trying again\n");
+				}
 			}
 		}
 	}
@@ -133,25 +192,34 @@ int Initialize_Device(libusb_context ** ctx, libusb_device_handle ** usb_device)
 	return ret;
 }
 
+#define LIBUSB_MAX_TRANSFER (16 * 1024)
+
 int ep_write(void *buf, int len, libusb_device_handle * usb_device)
 {
 	int a_len = 0;
+	int sending, sent;
 	int ret =
 	    libusb_control_transfer(usb_device, LIBUSB_REQUEST_TYPE_VENDOR, 0,
 				    len & 0xffff, len >> 16, NULL, 0, 1000);
 
 	if(ret != 0)
 	{
-		printf("Failed control transfer\n");
+		printf("Failed control transfer (%d,%d)\n", ret, len);
 		return ret;
 	}
 
-	if(len > 0)
+	while(len > 0)
 	{
-		ret = libusb_bulk_transfer(usb_device, out_ep, buf, len, &a_len, 100000);
-		if(verbose)
-			printf("libusb_bulk_transfer returned %d\n", ret);
+		sending = len < LIBUSB_MAX_TRANSFER ? len : LIBUSB_MAX_TRANSFER;
+		ret = libusb_bulk_transfer(usb_device, out_ep, buf, sending, &sent, 5000);
+		if (ret)
+			break;
+		a_len += sent;
+		buf += sent;
+		len -= sent;
 	}
+	if(verbose)
+		printf("libusb_bulk_transfer sent %d bytes; returned %d\n", a_len, ret);
 
 	return a_len;
 }
@@ -162,7 +230,7 @@ int ep_read(void *buf, int len, libusb_device_handle * usb_device)
 	    libusb_control_transfer(usb_device,
 				    LIBUSB_REQUEST_TYPE_VENDOR |
 				    LIBUSB_ENDPOINT_IN, 0, len & 0xffff,
-				    len >> 16, buf, len, 1000);
+				    len >> 16, buf, len, 2000);
 	if(ret >= 0)
 		return len;
 	else
@@ -194,13 +262,56 @@ void get_options(int argc, char *argv[])
 		{
 			verbose = 1;
 		}
+		else if(strcmp(*argv, "-o") == 0)
+		{
+			overlay = 1;
+		}
+		else if(strcmp(*argv, "-m") == 0)
+		{
+			argv++; argc--;
+			if(argc < 1)
+				usage(1);
+			delay = atol(*argv);
+		}
 		else if(strcmp(*argv, "-vv") == 0)
 		{
 			verbose = 2;
 		}
+		else if(strcmp(*argv, "-u") == 0)
+		{
+			unsigned_boot = 1;
+		}
 		else if(strcmp(*argv, "-s") == 0)
 		{
-			signed_boot = 1;
+			unsigned_boot = 0;
+		}
+		else if(strcmp(*argv, "-0") == 0)
+		{
+			targetPortNo = 0;
+		}
+		else if(strcmp(*argv, "-1") == 0)
+		{
+			targetPortNo = 1;
+		}
+		else if(strcmp(*argv, "-2") == 0)
+		{
+			targetPortNo = 2;
+		}
+		else if(strcmp(*argv, "-3") == 0)
+		{
+			targetPortNo = 3;
+		}
+		else if(strcmp(*argv, "-4") == 0)
+		{
+			targetPortNo = 4;
+		}
+		else if(strcmp(*argv, "-5") == 0)
+		{
+			targetPortNo = 5;
+		}
+		else if(strcmp(*argv, "-6") == 0)
+		{
+			targetPortNo = 6;
 		}
 		else
 		{
@@ -208,6 +319,14 @@ void get_options(int argc, char *argv[])
 		}
 
 		argv++; argc--;
+	}
+	if(overlay&&!directory)
+	{
+		usage(1);
+	}
+	if(!delay)
+	{
+		usage(1);
 	}
 }
 
@@ -288,17 +407,36 @@ FILE * check_file(char * dir, char *fname)
 	// Check directory first then /usr/share/rpiboot
 	if(dir)
 	{
-		strcpy(path, dir);
-		strcat(path, "/");
-		strcat(path, fname);
-		fp = fopen(path, "rb");
+		if(overlay&&(pathname != NULL))
+		{
+			strcpy(path, dir);
+			strcat(path, "/");
+			strcat(path, pathname);
+			strcat(path, "/");
+			strcat(path, fname);
+			fp = fopen(path, "rb");
+			memset(path, 0, sizeof(path));
+		}
+
+		if (fp == NULL)
+		{
+			strcpy(path, dir);
+			strcat(path, "/");
+			strcat(path, fname);
+			fp = fopen(path, "rb");
+		}
 	}
 
 	if(fp == NULL)
 	{
-		strcpy(path, "/usr/share/rpiboot/");
-		strcat(path, fname);
-		fp = fopen(path, "rb");
+		if(strcmp(fname, "bootcode.bin") == 0)
+			fp = fmemopen(msd_bootcode_bin, msd_bootcode_bin_len, "rb");
+		else if(strcmp(fname, "start.elf") == 0)
+			fp = fmemopen(msd_start_elf, msd_start_elf_len, "rb");
+		else if(strcmp(fname, "bootsig.bin") == 0)
+			fp = fmemopen(msd_bootsig_bin, msd_bootsig_bin_len, "rb");
+		else if(strcmp(fname, "2ndsig.bin") == 0)
+			fp = fmemopen(msd_2ndsig_bin, msd_2ndsig_bin_len, "rb");
 	}
 
 	return fp;
@@ -319,6 +457,9 @@ int file_server(libusb_device_handle * usb_device)
 		int i = ep_read(&message, sizeof(message), usb_device);
 		if(i < 0)
 		{
+			// Drop out if the device goes away
+			if(i == LIBUSB_ERROR_NO_DEVICE || i == LIBUSB_ERROR_IO)
+				break;
 			sleep(1);
 			continue;
 		}
@@ -423,7 +564,7 @@ int file_server(libusb_device_handle * usb_device)
 int main(int argc, char *argv[])
 {
 	FILE * second_stage;
-	FILE * fp_sign;
+	FILE * fp_sign = NULL;
 	libusb_context *ctx;
 	libusb_device_handle *usb_device;
 	struct libusb_device_descriptor desc;
@@ -446,18 +587,14 @@ int main(int argc, char *argv[])
 #endif
 
 
-	// Default to standard msd directory
-	if(directory == NULL)
-		directory = "msd";
-
 	second_stage = check_file(directory, "bootcode.bin");
 	if(second_stage == NULL)
 	{
-		fprintf(stderr, "Unable to open 'bootcode.bin' from /usr/share/rpiboot or supplied directory\n");
+		fprintf(stderr, "Unable to open 'bootcode.bin' from /usr/share/rpiboot/msd or supplied directory\n");
 		usage(1);
 	}
 
-	if(signed_boot)
+	if(!unsigned_boot)
 	{
 		fp_sign = check_file(directory, "bootsig.bin");
 		if(fp_sign == NULL)
@@ -511,13 +648,13 @@ int main(int argc, char *argv[])
 
 			if (ret)
 			{
-				usleep(500);
+				usleep(delay);
 			}
 		}
 		while (ret);
 
 		last_serial = desc.iSerialNumber;
-		if(desc.iSerialNumber == 0)
+		if(desc.iSerialNumber == 0 || desc.idProduct == 0x2711)
 		{
 			printf("Sending bootcode.bin\n");
 			second_stage_boot(usb_device);
