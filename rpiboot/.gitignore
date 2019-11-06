@@ -1,5 +1,7 @@
 rpiboot
 bin2c
+rpiboot.exe
+bin2c.exe
 msd/2ndsig.h
 msd/bootcode.h
 msd/bootsig.h
