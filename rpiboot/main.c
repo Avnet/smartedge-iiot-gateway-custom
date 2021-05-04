@@ -617,7 +617,7 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 
-	libusb_set_debug(ctx, verbose ? LIBUSB_LOG_LEVEL_WARNING : 0);
+	libusb_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, verbose ? LIBUSB_LOG_LEVEL_WARNING : 0);
 
 	do
 	{
